@@ -87,8 +87,9 @@ th{font-size:12px;color:var(--mu);text-transform:uppercase}td.n,th.n{text-align:
  <div class="card"><h2>2. Detalle de la venta</h2><div id="cart"></div>
   <div class="row" style="margin-top:10px"><div><label>Cliente (opcional)</label><input id="cli" placeholder="Consumidor final"></div>
   <div><label>Cédula/RUC (opcional)</label><input id="ci"></div></div>
-  <div class="row"><div><label>Forma de pago</label><select id="pago"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Crédito</option></select></div>
+  <div class="row"><div><label>Forma de pago</label><select id="pago" onchange="mixToggle()"><option>Efectivo</option><option>Transferencia</option><option>Mixto</option><option>Tarjeta</option><option>Crédito</option></select></div>
   <div><label>Descuento ($)</label><input id="desc" type="number" min="0" step="0.01" value="0" oninput="cart_()"></div></div>
+  <div class="row" id="mix" style="display:none"><div><label>Pago en efectivo ($)</label><input id="mx-e" type="number" min="0" step="0.01" oninput="mixCalc('e')"></div><div><label>Pago por transferencia ($)</label><input id="mx-t" type="number" min="0" step="0.01" oninput="mixCalc('t')"></div></div>
   <div class="tot" id="tot">$0.00</div>
   <button class="b" style="width:100%" onclick="cobrar()">Cobrar y generar nota de venta</button></div>
 </div></section>
@@ -164,14 +165,25 @@ function cart_(){
  $('#cart').innerHTML=cart.length?`<table><thead><tr><th>Producto</th><th style="width:70px">Cant.</th><th class="n">Subtotal</th><th></th></tr></thead><tbody>`+
  cart.map(i=>`<tr><td>${e(i.nom)}<br><small>${m(i.pre)}</small></td><td><input type="number" min="1" value="${i.cant}" onchange="setQ('${i.id}',this.value)"></td><td class="n">${m(i.pre*i.cant)}</td><td><button class="b r s" onclick="del('${i.id}')">✕</button></td></tr>`).join('')+'</tbody></table>':'<p style="color:var(--mu)">Haga clic en un producto para agregarlo.</p>';
  $('#tot').textContent='Total: '+m(Math.max(0,sub()-(+$('#desc').value||0)));
+ if($('#pago').value=='Mixto'&&$('#mx-e').value!=='')mixCalc('e');
 }
+const tt=()=>Math.max(0,sub()-(+$('#desc').value||0));
+function mixToggle(){const on=$('#pago').value=='Mixto';$('#mix').style.display=on?'':'none';$('#mx-e').value=$('#mx-t').value=''}
+function mixCalc(w){const t=tt(),a=Math.max(0,parseFloat($(w=='e'?'#mx-e':'#mx-t').value)||0);$(w=='e'?'#mx-t':'#mx-e').value=Math.max(0,t-a).toFixed(2)}
 function cobrar(){
  if(!cart.length){alert('Agregue al menos un producto');return}
  const d=Math.min(+$('#desc').value||0,sub());
- const v={id:uid(),num:String(db.cfg.sig).padStart(6,'0'),fecha:new Date().toISOString(),cli:$('#cli').value.trim()||'Consumidor final',ci:$('#ci').value.trim(),pago:$('#pago').value,items:cart.map(i=>({...i})),desc:d,total:sub()-d,anulada:false};
+ let mix=null;
+ if($('#pago').value=='Mixto'){
+  const e=parseFloat($('#mx-e').value)||0,t=parseFloat($('#mx-t').value)||0,tot=sub()-d;
+  if(e<=0||t<=0){alert('En pago mixto ingrese un valor en efectivo y otro en transferencia');return}
+  if(Math.abs(e+t-tot)>0.005){alert('El efectivo y la transferencia deben sumar '+m(tot));return}
+  mix={e,t};
+ }
+ const v={id:uid(),num:String(db.cfg.sig).padStart(6,'0'),fecha:new Date().toISOString(),cli:$('#cli').value.trim()||'Consumidor final',ci:$('#ci').value.trim(),pago:$('#pago').value,mix,items:cart.map(i=>({...i})),desc:d,total:sub()-d,anulada:false};
  v.items.forEach(i=>{const p=db.prod.find(x=>x.id==i.id);if(p)p.stock-=i.cant});
  db.cfg.sig++;db.ven.unshift(v);save();
- cart=[];['#cli','#ci'].forEach(s=>$(s).value='');$('#desc').value=0;$('#q').value='';
+ cart=[];['#cli','#ci'].forEach(s=>$(s).value='');$('#desc').value=0;$('#q').value='';$('#mx-e').value=$('#mx-t').value='';
  plist();cart_();nota(v.id);
 }
 
@@ -181,7 +193,7 @@ function nota(id){
  $('#box').className='box '+(c.fmt=='a4'?'a4':'');
  $('#nota').innerHTML=`<h3>${e(c.nom)}</h3><div class="c">${c.ruc?'RUC: '+e(c.ruc)+'<br>':''}${e(c.dir)}${c.tel?'<br>Tel: '+e(c.tel):''}</div><hr>
  <div class="c"><b>NOTA DE VENTA N° ${v.num}</b>${v.anulada?'<br><b>*** ANULADA ***</b>':''}</div><hr>
- Fecha: ${f.toLocaleDateString()} ${f.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}<br>Cliente: ${e(v.cli)}${v.ci?'<br>CI/RUC: '+e(v.ci):''}<br>Pago: ${e(v.pago)}
+ Fecha: ${f.toLocaleDateString()} ${f.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}<br>Cliente: ${e(v.cli)}${v.ci?'<br>CI/RUC: '+e(v.ci):''}<br>Pago: ${e(v.pago)}${v.mix?' (Efectivo '+m(v.mix.e)+' + Transferencia '+m(v.mix.t)+')':''}
  <table style="margin-top:8px"><thead><tr><th>Cant</th><th>Descripción</th><th style="text-align:right">P.Unit</th><th style="text-align:right">Total</th></tr></thead><tbody>`+
  v.items.map(i=>`<tr><td>${i.cant}</td><td>${e(i.nom)}</td><td style="text-align:right">${m(i.pre)}</td><td style="text-align:right">${m(i.pre*i.cant)}</td></tr>`).join('')+`</tbody></table>
  <div style="text-align:right;margin-top:8px">${v.desc?'Descuento: -'+m(v.desc)+'<br>':''}<b style="font-size:16px">TOTAL: ${m(v.total)}</b></div><hr>
@@ -212,8 +224,8 @@ function reponer(id){const n=parseInt(prompt('¿Cuántas unidades ingresan?'));i
 /* VENTAS */
 function vtable(){
  const hoy=new Date().toDateString(),vh=db.ven.filter(v=>!v.anulada&&new Date(v.fecha).toDateString()==hoy);
- $('#vres').innerHTML=`Ventas de hoy: <b>${vh.length}</b> · Total del día: <b>${m(vh.reduce((a,v)=>a+v.total,0))}</b>`;
- $('#vt').innerHTML=db.ven.map(v=>`<tr${v.anulada?' style="opacity:.5;text-decoration:line-through"':''}><td>${v.num}</td><td>${new Date(v.fecha).toLocaleString([],{dateStyle:'short',timeStyle:'short'})}</td><td>${e(v.cli)}</td><td>${e(v.pago)}</td><td class="n">${m(v.total)}</td><td class="n" style="white-space:nowrap"><button class="b g s" onclick="nota('${v.id}')">Ver / Imprimir</button>${v.anulada?'':` <button class="b r s" onclick="anular('${v.id}')">Anular</button>`}</td></tr>`).join('')||'<tr><td colspan="6" style="color:var(--mu)">Aún no hay ventas</td></tr>';
+ $('#vres').innerHTML=`Ventas de hoy: <b>${vh.length}</b> · Total del día: <b>${m(vh.reduce((a,v)=>a+v.total,0))}</b><br>Efectivo: <b>${m(vh.reduce((a,v)=>a+(v.mix?v.mix.e:v.pago=='Efectivo'?v.total:0),0))}</b> · Transferencia: <b>${m(vh.reduce((a,v)=>a+(v.mix?v.mix.t:v.pago=='Transferencia'?v.total:0),0))}</b>`;
+ $('#vt').innerHTML=db.ven.map(v=>`<tr${v.anulada?' style="opacity:.5;text-decoration:line-through"':''}><td>${v.num}</td><td>${new Date(v.fecha).toLocaleString([],{dateStyle:'short',timeStyle:'short'})}</td><td>${e(v.cli)}</td><td>${e(v.pago)}${v.mix?'<br><small>Ef. '+m(v.mix.e)+' · Tr. '+m(v.mix.t)+'</small>':''}</td><td class="n">${m(v.total)}</td><td class="n" style="white-space:nowrap"><button class="b g s" onclick="nota('${v.id}')">Ver / Imprimir</button>${v.anulada?'':` <button class="b r s" onclick="anular('${v.id}')">Anular</button>`}</td></tr>`).join('')||'<tr><td colspan="6" style="color:var(--mu)">Aún no hay ventas</td></tr>';
 }
 function anular(id){
  if(!confirm('¿Anular esta venta? Los productos volverán al inventario.'))return;
